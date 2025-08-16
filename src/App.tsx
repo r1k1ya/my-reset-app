@@ -5,6 +5,8 @@ type Log = {
   id: number;
   title: string;
   date: string;
+  deleted?: boolean;
+  deletedAt?: number;
 };
 
 function App() {
@@ -15,44 +17,41 @@ function App() {
 
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
-  const [editingId, setEditingId] = useState<number | null>(null); // 編集中のID
-　const [searchTerm, setSearchTerm] = useState('');
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [tab, setTab] = useState<'main' | 'trash'>('main'); // タブ状態
 
-  // 初回読み込み時に localStorage からデータ取得
-  /*
+  // logs が変わるたびに localStorage に保存 & 24時間経過したゴミ箱項目を自動削除
   useEffect(() => {
-    const savedLogs = localStorage.getItem('logs');
-    console.log("読み込んだデータ:", savedLogs);
-    if (savedLogs) {
-      setLogs(JSON.parse(savedLogs));
+    const now = Date.now();
+    const cleanedLogs = logs.filter((log) => {
+      if (log.deleted && log.deletedAt) {
+        return now - log.deletedAt < 24 * 60 * 60 * 1000;
+      }
+      return true;
+    });
+    if (cleanedLogs.length !== logs.length) {
+      setLogs(cleanedLogs);
     }
-  }, []);
-  */
-
-  // logs が変わるたびに localStorage に保存
-  useEffect(() => {
-    console.log("保存するデータ:", logs);
-    localStorage.setItem('logs', JSON.stringify(logs));
+    localStorage.setItem('logs', JSON.stringify(cleanedLogs));
   }, [logs]);
 
   const handleAdd = () => {
     if (!title || !date) return;
 
-      if (editingId) {
-        // 編集モードなら更新
-        setLogs(logs.map(log => 
-          log.id === editingId ? { ...log, title, date } : log
-        ));
-        setEditingId(null);
-      } else {
-        const newLog: Log = {
-          id: Date.now(),
-          title,
-          date,
-        };
-        setLogs([newLog, ...logs]);
-      }
-      
+    if (editingId) {
+      // 編集モード
+      setLogs(logs.map(log => log.id === editingId ? { ...log, title, date } : log));
+      setEditingId(null);
+    } else {
+      const newLog: Log = {
+        id: Date.now(),
+        title,
+        date,
+      };
+      setLogs([newLog, ...logs]);
+    }
+
     setTitle('');
     setDate('');
   };
@@ -63,12 +62,32 @@ function App() {
     setEditingId(log.id);
   };
 
+  // ゴミ箱に移動
   const handleDelete = (id: number) => {
+    setLogs(logs.map(log =>
+      log.id === id ? { ...log, deleted: true, deletedAt: Date.now() } : log
+    ));
+  };
+
+  // ゴミ箱 → 復元
+  const handleRestore = (id: number) => {
+    setLogs(logs.map(log =>
+      log.id === id ? { ...log, deleted: false, deletedAt: undefined } : log
+    ));
+  };
+
+  // ゴミ箱 → 完全削除
+  const handlePermanentDelete = (id: number) => {
     setLogs(logs.filter(log => log.id !== id));
   };
 
+  // 表示するログ（タブによって切替）
+  const visibleLogs = tab === 'main'
+    ? logs.filter(log => !log.deleted)
+    : logs.filter(log => log.deleted);
+
   // 検索フィルター
-  const filteredLogs = logs.filter(
+  const filteredLogs = visibleLogs.filter(
     (log) =>
       log.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       log.date.includes(searchTerm)
@@ -78,28 +97,46 @@ function App() {
     <main className="p-4 space-y-4 bg-gray-900 text-white min-h-screen">
       <h1 className="text-xl font-bold">今日の積み上げ</h1>
 
-      {/* 入力フォーム */}
-      <div className="flex flex-col gap-2 md:flex-row md:items-center">
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="border p-2 rounded text-black"
-        />
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="例：英文法の復習"
-          className="border p-2 rounded w-full text-black"
-        />
+      {/* タブ切り替え */}
+      <div className="flex space-x-4">
         <button
-          onClick={handleAdd}
-          className={`text-white px-4 py-2 rounded ${editingId ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-500 hover:bg-blue-600'}`}
+          onClick={() => setTab('main')}
+          className={`px-4 py-2 rounded ${tab === 'main' ? 'bg-blue-500' : 'bg-gray-700'}`}
         >
-          {editingId ? '保存' : '追加'}
+          メイン
+        </button>
+        <button
+          onClick={() => setTab('trash')}
+          className={`px-4 py-2 rounded ${tab === 'trash' ? 'bg-blue-500' : 'bg-gray-700'}`}
+        >
+          ゴミ箱
         </button>
       </div>
+
+      {/* 入力フォーム（メインタブのみ表示） */}
+      {tab === 'main' && (
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="border p-2 rounded text-black"
+          />
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="例：英文法の復習"
+            className="border p-2 rounded w-full text-black"
+          />
+          <button
+            onClick={handleAdd}
+            className={`text-white px-4 py-2 rounded ${editingId ? 'bg-green-500 hover:bg-green-600' : 'bg-blue-500 hover:bg-blue-600'}`}
+          >
+            {editingId ? '保存' : '追加'}
+          </button>
+        </div>
+      )}
 
       {/* 検索欄 */}
       <div>
@@ -108,7 +145,7 @@ function App() {
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder="日付やタイトルで検索"
-          className="border p-2 rounded w-full"
+          className="border p-2 rounded w-full text-black"
         />
       </div>
 
@@ -122,21 +159,43 @@ function App() {
               <span className="text-lg">{log.title}</span>
             </div>
             <div className="flex space-x-2">
-              <button
-                onClick={() => handleEdit(log)}
-                className="text-yellow-500 hover:underline"
-              >
-                編集
-              </button>
-              <button
-                onClick={() => handleDelete(log.id)}
-                className="text-red-500 hover:underline"
-              >
-                削除
-              </button>
+              {tab === 'main' ? (
+                <>
+                  <button
+                    onClick={() => handleEdit(log)}
+                    className="text-yellow-500 hover:underline"
+                  >
+                    編集
+                  </button>
+                  <button
+                    onClick={() => handleDelete(log.id)}
+                    className="text-red-500 hover:underline"
+                  >
+                    削除
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => handleRestore(log.id)}
+                    className="text-green-500 hover:underline"
+                  >
+                    復元
+                  </button>
+                  <button
+                    onClick={() => handlePermanentDelete(log.id)}
+                    className="text-red-500 hover:underline"
+                  >
+                    完全削除
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ))}
+        {filteredLogs.length === 0 && (
+          <p className="text-gray-400 text-center">データがありません</p>
+        )}
       </div>
     </main>
   );
